@@ -1,24 +1,80 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, describe, expect, it } from "vitest";
 
-function spawnAsync(command: string, args: string[]): Promise<any> {
-  return new Promise((resolve) => {
-    const child = spawn(command, args);
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, () => {
+      const address = srv.address();
+      if (address && typeof address === "object") {
+        const { port } = address;
+        srv.close(() => resolve(port));
+      } else {
+        srv.close();
+        reject(new Error("Failed to acquire a free port"));
+      }
+    });
+    srv.on("error", reject);
+  });
+}
 
-    // Resolve when either stdout or stderr receives data (server started)
-    const onData = () => {
-      resolve(child);
+function spawnAsync(
+  command: string,
+  args: string[],
+  readyPattern?: RegExp,
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args);
+    let settled = false;
+
+    const cleanup = () => {
+      child.stdout?.removeListener("data", onData);
+      child.stderr?.removeListener("data", onData);
     };
 
-    child.stdout.once("data", onData);
-    child.stderr.once("data", onData);
+    const onData = (data: Buffer) => {
+      const text = data.toString();
+      if (readyPattern && readyPattern.test(text) && !settled) {
+        settled = true;
+        cleanup();
+        clearTimeout(timer);
+        resolve(child);
+      }
+    };
 
-    // Fallback: resolve after 500ms even if no output
-    setTimeout(() => resolve(child), 500);
+    child.stdout?.on("data", onData);
+    child.stderr?.on("data", onData);
+
+    child.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        clearTimeout(timer);
+        reject(err);
+      }
+    });
+
+    child.on("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        clearTimeout(timer);
+        reject(new Error(`Process exited with code ${code}`));
+      }
+    });
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        resolve(child);
+      }
+    }, 5000);
   });
 }
 
@@ -66,14 +122,12 @@ describe("MCP Mermaid Server", () => {
   }, 30000);
 
   it("sse", async () => {
-    const port = 18080;
-    const child = await spawnAsync("node", [
-      "./build/index.js",
-      "-t",
-      "sse",
-      "-p",
-      String(port),
-    ]);
+    const port = await getFreePort();
+    const child = await spawnAsync(
+      "node",
+      ["./build/index.js", "-t", "sse", "-p", String(port)],
+      /SSE Server listening on/,
+    );
 
     // Wait longer for server to fully start
     await new Promise((resolve) => setTimeout(resolve, 1500));
