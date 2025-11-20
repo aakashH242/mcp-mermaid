@@ -1,7 +1,6 @@
 import type { Server as HTTPServer } from "node:http";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import sinon from "sinon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the StreamableHTTPServerTransport
@@ -13,18 +12,16 @@ vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 }));
 
 describe("Streamable HTTP Service", () => {
-  let sandbox: sinon.SinonSandbox;
-  let consoleLogSpy: sinon.SinonSpy;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   const servers: HTTPServer[] = [];
 
   beforeEach(() => {
-    sandbox = sinon.createSandbox();
-    consoleLogSpy = sandbox.spy(console, "log");
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    sandbox.restore();
+    consoleLogSpy.mockRestore();
 
     // Close all HTTP servers to prevent port conflicts
     await Promise.all(
@@ -67,15 +64,14 @@ describe("Streamable HTTP Service", () => {
 
       // Start the server
       const httpServer = await startHTTPStreamableServer(mockCreateServer);
+      servers.push(httpServer);
 
       // Wait for the server to initialize
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Check if console.log was called with the expected message
-      expect(consoleLogSpy.called).toBe(true);
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasStartupMessage = logCalls.some(
         (log) =>
           log.includes("Streamable HTTP Server listening on") &&
@@ -104,13 +100,12 @@ describe("Streamable HTTP Service", () => {
         "/api",
         9000,
       );
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(consoleLogSpy.called).toBe(true);
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasStartupMessage = logCalls.some((log) =>
         log.includes("localhost:9000/api"),
       );
@@ -136,18 +131,17 @@ describe("Streamable HTTP Service", () => {
         8080,
         "0.0.0.0",
       );
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(consoleLogSpy.called).toBe(true);
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasStartupMessage = logCalls.some((log) =>
         log.includes("0.0.0.0:8080/test"),
       );
       expect(hasStartupMessage).toBe(true);
-    });
+    }, 15000); // Host-level binding can be slower on CI; give it more time.
 
     it("should use localhost when host is not provided", async () => {
       const mockServer = {
@@ -166,12 +160,11 @@ describe("Streamable HTTP Service", () => {
         "/mcp",
         3000,
       );
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasLocalhost = logCalls.some((log) => log.includes("localhost"));
       expect(hasLocalhost).toBe(true);
     });
@@ -206,11 +199,12 @@ describe("Streamable HTTP Service", () => {
       expect(typeof startHTTPStreamableServer).toBe("function");
 
       const httpServer = await startHTTPStreamableServer(mockCreateServer);
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Server setup should have completed
-      expect(consoleLogSpy.called).toBe(true);
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
     });
 
     it("should handle async initialization", async () => {
@@ -226,11 +220,12 @@ describe("Streamable HTTP Service", () => {
       );
 
       // The function returns a Promise<void>
-      const httpServer = await startHTTPStreamableServer;
-      servers.push(httpServer);
-      const result = httpServer(mockCreateServer);
+      const result = startHTTPStreamableServer(mockCreateServer);
 
       expect(result).toBeInstanceOf(Promise);
+
+      const httpServer = await result;
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
@@ -250,14 +245,13 @@ describe("Streamable HTTP Service", () => {
       );
 
       // Should not throw with all parameters
-      expect(() => {
-        startHTTPStreamableServer(
-          mockCreateServer,
-          "/endpoint",
-          5000,
-          "127.0.0.1",
-        );
-      }).not.toThrow();
+      const httpServer = await startHTTPStreamableServer(
+        mockCreateServer,
+        "/endpoint",
+        5000,
+        "127.0.0.1",
+      );
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
@@ -274,10 +268,8 @@ describe("Streamable HTTP Service", () => {
         "../../src/services/streamable"
       );
 
-      // Should not throw with only createServer
-      expect(() => {
-        startHTTPStreamableServer(mockCreateServer);
-      }).not.toThrow();
+      const httpServer = await startHTTPStreamableServer(mockCreateServer);
+      servers.push(httpServer);
 
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
@@ -299,7 +291,12 @@ describe("Streamable HTTP Service", () => {
       const axios = (await import("axios")).default;
       const testPort = 14001;
 
-      await startHTTPStreamableServer(mockCreateServer, "/mcp", testPort);
+      const httpServer = await startHTTPStreamableServer(
+        mockCreateServer,
+        "/mcp",
+        testPort,
+      );
+      servers.push(httpServer);
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       try {
@@ -347,7 +344,12 @@ describe("Streamable HTTP Service", () => {
       const axios = (await import("axios")).default;
       const testPort = 14002;
 
-      await startHTTPStreamableServer(mockCreateServer, "/mcp", testPort);
+      const httpServer = await startHTTPStreamableServer(
+        mockCreateServer,
+        "/mcp",
+        testPort,
+      );
+      servers.push(httpServer);
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       try {
@@ -377,7 +379,12 @@ describe("Streamable HTTP Service", () => {
       const axios = (await import("axios")).default;
       const testPort = 14003;
 
-      await startHTTPStreamableServer(mockCreateServer, "/mcp", testPort);
+      const httpServer = await startHTTPStreamableServer(
+        mockCreateServer,
+        "/mcp",
+        testPort,
+      );
+      servers.push(httpServer);
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       try {
@@ -405,7 +412,12 @@ describe("Streamable HTTP Service", () => {
       const axios = (await import("axios")).default;
       const testPort = 14004;
 
-      await startHTTPStreamableServer(mockCreateServer, "/mcp", testPort);
+      const httpServer = await startHTTPStreamableServer(
+        mockCreateServer,
+        "/mcp",
+        testPort,
+      );
+      servers.push(httpServer);
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       try {
@@ -442,7 +454,12 @@ describe("Streamable HTTP Service", () => {
       const axios = (await import("axios")).default;
       const testPort = 14005;
 
-      await startHTTPStreamableServer(mockCreateServer, "/mcp", testPort);
+      const httpServer = await startHTTPStreamableServer(
+        mockCreateServer,
+        "/mcp",
+        testPort,
+      );
+      servers.push(httpServer);
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       try {
