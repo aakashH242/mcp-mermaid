@@ -39,7 +39,7 @@ function spawnAsync(
 
     const onData = (data: Buffer) => {
       const text = data.toString();
-      if (readyPattern && readyPattern.test(text) && !settled) {
+      if (readyPattern?.test(text) && !settled) {
         settled = true;
         cleanup();
         clearTimeout(timer);
