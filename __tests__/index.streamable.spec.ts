@@ -1,13 +1,11 @@
 import { spawn } from "node:child_process";
 import net from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it } from "vitest";
 
-// These helpers keep the SSE integration test stable on slower CI runners by
-// waiting for the server to actually bind and advertise readiness before the
-// client begins connecting. This avoids the 30s timeout we saw when the client
-// raced the server startup.
+// Helpers mirror the SSE e2e: pick a free port, wait for readiness, and avoid
+// racing the server startup on CI. This keeps the real render path stable.
 function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -98,8 +96,6 @@ function spawnAsync(
       if (!settled) {
         settled = true;
         cleanup();
-        // Fallback: proceed even if we never saw the startup log; readiness
-        // will still be verified by waitForPort.
         resolve(child);
       }
     }, 5000);
@@ -115,46 +111,41 @@ function killAsync(child: any): Promise<void> {
   });
 }
 
-// Keep this suite serial so nothing else contends for the child process/port.
-describe.sequential("MCP Mermaid Server (SSE)", () => {
-  it("sse end-to-end", async () => {
+// Serial to avoid contention; this uses the real tool (Playwright render).
+describe.sequential("MCP Mermaid Server (Streamable)", () => {
+  it("streamable end-to-end", async () => {
     const port = await getFreePort();
     const child = await spawnAsync(
       "node",
-      ["./build/index.js", "-t", "sse", "-p", String(port)],
-      /SSE Server listening on/,
+      ["./build/index.js", "-t", "streamable", "-p", String(port)],
+      /Streamable HTTP Server listening on/,
     );
 
-    // Actively poll for the port to open; avoids racing the server startup on CI.
     await waitForPort(port, 15000);
 
-    const url = `http://localhost:${port}/sse`;
-    const transport = new SSEClientTransport(new URL(url), {});
-
-    const client = new Client(
-      { name: "sse-client", version: "1.0.0" },
-      { capabilities: {} },
-    );
+    const url = `http://localhost:${port}/mcp`;
+    const transport = new StreamableHTTPClientTransport(new URL(url));
+    const client = new Client({
+      name: "streamable-http-client",
+      version: "1.0.0",
+    });
 
     try {
-      // Exercise the real tool end-to-end (per maintainer ask); this triggers
-      // Playwright/Chromium under the hood, so keep the generous timeout and
-      // readiness checks to avoid flakes on CI.
       await client.connect(transport);
       const listTools = await client.listTools();
 
       expect(listTools.tools.length).toBe(1);
       expect(listTools.tools[0].name).toBe("generate_mermaid_diagram");
 
-      const mermaidCode = `sequenceDiagram
-  Alice->>John: Hello John
-  John-->>Alice: Hi Alice`;
+      const mermaidCode = `flowchart TD
+  A[User] -->|Uses| B[Web App]
+  B -->|Reads/Writes| C[(Database)]`;
 
       const res = await client.callTool({
         name: "generate_mermaid_diagram",
         arguments: {
           mermaid: mermaidCode,
-          theme: "dark",
+          theme: "default",
           outputType: "png_url",
         },
       });
@@ -164,5 +155,5 @@ describe.sequential("MCP Mermaid Server (SSE)", () => {
     } finally {
       await killAsync(child);
     }
-  }, 120000); // Allow extra time on CI runners; readiness + Playwright render can be slow.
+  }, 120000); // Allow extra time for Playwright render on CI.
 });

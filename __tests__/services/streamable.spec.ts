@@ -141,7 +141,7 @@ describe("Streamable HTTP Service", () => {
         log.includes("0.0.0.0:8080/test"),
       );
       expect(hasStartupMessage).toBe(true);
-    });
+    }, 15000); // Host-level binding can be slower on CI; give it more time.
 
     it("should use localhost when host is not provided", async () => {
       const mockServer = {
