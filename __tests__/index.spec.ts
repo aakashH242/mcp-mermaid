@@ -66,18 +66,19 @@ describe("MCP Mermaid Server", () => {
   }, 30000);
 
   it("sse", async () => {
+    const port = 18080;
     const child = await spawnAsync("node", [
       "./build/index.js",
       "-t",
       "sse",
       "-p",
-      "3033",
+      String(port),
     ]);
 
     // Wait longer for server to fully start
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    const url = "http://localhost:3033/sse";
+    const url = `http://localhost:${port}/sse`;
     const transport = new SSEClientTransport(new URL(url), {});
 
     const client = new Client(
@@ -85,29 +86,31 @@ describe("MCP Mermaid Server", () => {
       { capabilities: {} },
     );
 
-    await client.connect(transport);
-    const listTools = await client.listTools();
+    try {
+      await client.connect(transport);
+      const listTools = await client.listTools();
 
-    expect(listTools.tools.length).toBe(1);
-    expect(listTools.tools[0].name).toBe("generate_mermaid_diagram");
+      expect(listTools.tools.length).toBe(1);
+      expect(listTools.tools[0].name).toBe("generate_mermaid_diagram");
 
-    const mermaidCode = `sequenceDiagram
+      const mermaidCode = `sequenceDiagram
   Alice->>John: Hello John
   John-->>Alice: Hi Alice`;
 
-    const res = await client.callTool({
-      name: "generate_mermaid_diagram",
-      arguments: {
-        mermaid: mermaidCode,
-        theme: "dark",
-        outputType: "png_url",
-      },
-    });
+      const res = await client.callTool({
+        name: "generate_mermaid_diagram",
+        arguments: {
+          mermaid: mermaidCode,
+          theme: "dark",
+          outputType: "png_url",
+        },
+      });
 
-    // @ts-expect-error ignore
-    expect(res.content[0].text).toContain("https://mermaid.ink/img/pako:");
-
-    await killAsync(child);
+      // @ts-expect-error ignore
+      expect(res.content[0].text).toContain("https://mermaid.ink/img/pako:");
+    } finally {
+      await killAsync(child);
+    }
   }, 30000);
 
   // TODO: Fix streamable test - currently timing out
