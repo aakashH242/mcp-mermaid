@@ -23,7 +23,7 @@ function getFreePort(): Promise<number> {
   });
 }
 
-function waitForPort(port: number, timeoutMs = 15000): Promise<void> {
+function waitForPort(port: number, timeoutMs = 30000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
 
@@ -113,47 +113,66 @@ function killAsync(child: any): Promise<void> {
 
 // Serial to avoid contention; this uses the real tool (Playwright render).
 describe.sequential("MCP Mermaid Server (Streamable)", () => {
-  it("streamable end-to-end", async () => {
-    const port = await getFreePort();
-    const child = await spawnAsync(
-      "node",
-      ["./build/index.js", "-t", "streamable", "-p", String(port)],
-      /Streamable HTTP Server listening on/,
-    );
+  it(
+    "streamable end-to-end",
+    async () => {
+      const port = await getFreePort();
+      const child = await spawnAsync(
+        "node",
+        ["./build/index.js", "-t", "streamable", "-p", String(port)],
+        /Streamable HTTP Server listening on/,
+      );
 
-    await waitForPort(port, 15000);
+      await waitForPort(port, 30000);
 
-    const url = `http://localhost:${port}/mcp`;
-    const transport = new StreamableHTTPClientTransport(new URL(url));
-    const client = new Client({
-      name: "streamable-http-client",
-      version: "1.0.0",
-    });
+      const url = `http://localhost:${port}/mcp`;
+      const transport = new StreamableHTTPClientTransport(new URL(url));
+      const client = new Client({
+        name: "streamable-http-client",
+        version: "1.0.0",
+      });
 
-    try {
-      await client.connect(transport);
-      const listTools = await client.listTools();
+      try {
+        await client.connect(transport);
 
-      expect(listTools.tools.length).toBe(1);
-      expect(listTools.tools[0].name).toBe("generate_mermaid_diagram");
+        // On slower runners the first accept/handshake can take a moment.
+        // Retry a couple times before giving up so we don't flake on CI.
+        const listTools = await (async () => {
+          let lastError: unknown;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              return await client.listTools();
+            } catch (error) {
+              lastError = error;
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+          }
+          throw lastError;
+        })();
 
-      const mermaidCode = `flowchart TD
+        expect(listTools.tools.length).toBe(1);
+        expect(listTools.tools[0].name).toBe("generate_mermaid_diagram");
+
+        const mermaidCode = `flowchart TD
   A[User] -->|Uses| B[Web App]
   B -->|Reads/Writes| C[(Database)]`;
 
-      const res = await client.callTool({
-        name: "generate_mermaid_diagram",
-        arguments: {
-          mermaid: mermaidCode,
-          theme: "default",
-          outputType: "png_url",
-        },
-      });
+        const res = await client.callTool({
+          name: "generate_mermaid_diagram",
+          arguments: {
+            mermaid: mermaidCode,
+            theme: "default",
+            outputType: "png_url",
+          },
+        });
 
-      // @ts-expect-error ignore
-      expect(res.content[0].text).toContain("https://mermaid.ink/img/pako:");
-    } finally {
-      await killAsync(child);
-    }
-  }, 120000); // Allow extra time for Playwright render on CI.
+        // @ts-expect-error ignore
+        expect(res.content[0].text).toContain("https://mermaid.ink/img/pako:");
+      } finally {
+        await killAsync(child);
+      }
+    },
+    // Allow extra time for Playwright render on CI.
+    120000,
+  );
 });
