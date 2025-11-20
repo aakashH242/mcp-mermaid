@@ -1,7 +1,6 @@
 import type { Server as HTTPServer } from "node:http";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import sinon from "sinon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the StreamableHTTPServerTransport
@@ -13,18 +12,16 @@ vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 }));
 
 describe("Streamable HTTP Service", () => {
-  let sandbox: sinon.SinonSandbox;
-  let consoleLogSpy: sinon.SinonSpy;
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
   const servers: HTTPServer[] = [];
 
   beforeEach(() => {
-    sandbox = sinon.createSandbox();
-    consoleLogSpy = sandbox.spy(console, "log");
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.clearAllMocks();
   });
 
   afterEach(async () => {
-    sandbox.restore();
+    consoleLogSpy.mockRestore();
 
     // Close all HTTP servers to prevent port conflicts
     await Promise.all(
@@ -72,10 +69,8 @@ describe("Streamable HTTP Service", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Check if console.log was called with the expected message
-      expect(consoleLogSpy.called).toBe(true);
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasStartupMessage = logCalls.some(
         (log) =>
           log.includes("Streamable HTTP Server listening on") &&
@@ -107,10 +102,8 @@ describe("Streamable HTTP Service", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(consoleLogSpy.called).toBe(true);
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasStartupMessage = logCalls.some((log) =>
         log.includes("localhost:9000/api"),
       );
@@ -139,10 +132,8 @@ describe("Streamable HTTP Service", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(consoleLogSpy.called).toBe(true);
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasStartupMessage = logCalls.some((log) =>
         log.includes("0.0.0.0:8080/test"),
       );
@@ -169,9 +160,7 @@ describe("Streamable HTTP Service", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      const logCalls = consoleLogSpy
-        .getCalls()
-        .map((call) => call.args.join(" "));
+      const logCalls = consoleLogSpy.mock.calls.map((call) => call.join(" "));
       const hasLocalhost = logCalls.some((log) => log.includes("localhost"));
       expect(hasLocalhost).toBe(true);
     });
@@ -210,7 +199,7 @@ describe("Streamable HTTP Service", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Server setup should have completed
-      expect(consoleLogSpy.called).toBe(true);
+      expect(consoleLogSpy.mock.calls.length > 0).toBe(true);
     });
 
     it("should handle async initialization", async () => {

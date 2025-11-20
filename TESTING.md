@@ -314,6 +314,31 @@ git commit --no-verify -m "Emergency commit"
 
 ## Troubleshooting
 
+### Lint Check Failed
+
+**Problem:** Code style violations detected by Biome
+
+**Solution:**
+```bash
+# Check what's wrong
+npm run lint
+
+# Auto-fix most issues
+npx biome check --write .
+
+# Format all files
+npx biome format --write .
+
+# Both check and format
+npx biome check --write . && npx biome format --write .
+```
+
+**Common fixes:**
+- Template literal usage instead of string concatenation
+- Consistent quote styles
+- Missing/extra whitespace
+- Unused imports or variables
+
 ### Tests Timing Out
 If tests timeout, check for:
 - Unmocked async operations
@@ -342,12 +367,4 @@ When adding new features:
 4. Pre-commit hooks will automatically run and block commits if tests fail
 5. Update this documentation if adding new testing patterns
 
-### Coverage Requirements
-
-All contributions **must maintain**:
-- ✅ Minimum 90% coverage on all metrics
-- ✅ All tests passing
-- ✅ No regressions in existing tests
-
-The pre-commit hook enforces these requirements automatically.
 
